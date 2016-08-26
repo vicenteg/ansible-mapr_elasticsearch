@@ -1,0 +1,26 @@
+- name: get cluster name
+  shell: head -1 /opt/mapr/conf/mapr-clusters.conf  | awk '{ print $1 }'
+  changed_when: false
+  register: discovered_cluster_name
+
+- name: install mapr-elasticsearch
+  become: yes
+  become_user: root
+  yum: name=mapr-elasticsearch-{{elasticsearch_version}}.{{elasticsearch_build}} state=present
+  environment: '{{proxy_env}}'
+
+- name: create elasticsearch data home (configure.sh will not do mkdir -p)
+  become: yes
+  become_user: '{{mapr_admin_username}}'
+  command: hadoop fs -mkdir -p {{elasticsearch_data_home}}
+  when: elasticsearch_data_home is defined
+
+- name: configure elasticsearch
+  become: yes
+  become_user: root
+  command: /opt/mapr/server/configure.sh -R -ES {{groups["elasticsearch"]|join(',')}} {% if elasticsearch_data_home is defined %}-ESDB {{elasticsearch_data_home}}{% endif %}
+
+# Use host= because ES does not listen on loopback by default
+- name: wait for elasticsearch to come up
+  wait_for: host={{item}} port={{elasticsearch_port}} timeout=120
+  with_items: '{{groups["elasticsearch"]}}'
